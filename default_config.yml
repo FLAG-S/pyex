@@ -1,0 +1,15 @@
+VERBOSE_TYPE: 'NORMAL'    # Must have at least one config parameter so this stays here.
+
+# Parameters that overwride the default or selected .sex go here.
+CATALOG_NAME: 'cat'
+FILTER: 'N'
+STARNNW_NAME: '/Users/jt458/pyex/sextractor/config/default.nnw'
+WEIGHT_TYPE: 'map_rms,map_rms'
+
+---
+
+ - NUMBER    # Must have at least one output parameter so this stays here.
+
+ # Desired outputs go here.
+ - FLUX_AUTO
+ - FLUXERR_AUTO
