@@ -1,0 +1,28 @@
+# Define the configuration parameters to overwrite here.
+
+VERBOSE_TYPE: 'NORMAL'    # Must have at least one config parameter so this stays here.
+
+---
+# Define the desired output quantities here.
+
+ - NUMBER    # Must have at least one output parameter so this stays here.
+
+ # Desired outputs go here.
+ - FLUX_AUTO
+ - FLUX_APER(12)
+---
+# Define uncertainty estimation parameters here (Only compatible with FLUX_AUTO and FLUX_APER and when a weight image is given).
+
+EMPIRICAL: True    # Perform empirical uncertainty estimation. (Will overide any CHECK_IMAGE settings above to 'NONE')
+                   # Will also include A_IMAGE, B_IMAGE, X_IMAGE, Y_IMAGE and KRON_RADIUS required for calculation in output catalogue.
+
+RADII: [1.665,3.33172414,4.99844828,6.66517241,8.33189655,9.99862069,
+11.66534483,13.33206897,14.9987931,16.66551724,18.33224138,19.99896552,
+21.66568966,23.33241379,24.99913793,26.66586207,28.33258621,29.99931034,
+31.66603448,33.33275862,34.99948276,36.6662069,38.33293103,39.99965517,
+41.66637931,43.33310345,44.99982759,46.66655172,48.33327586,50]    # The aperture radii to use for uncertainty estimation.
+
+N_SMALL: 3000    # The number of apertures to use in the first iteration.
+N_LARGE: 500    # The number of apertures to use in the second iteration.
+
+SAVE_FIGS: True    # Save an image showing aperture locations and a plot of noise vs aperture size.

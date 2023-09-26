@@ -290,7 +290,7 @@ class pyex():
                 cat['FLUXERR_APER'] = (sig1 * ((popt[0]*np.power(cat['FLUXAPER_AREA'],popt[1])) + (popt[2]*np.power(cat['FLUXAPER_AREA'],popt[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
                 cat.remove_column('FLUXAPER_AREA')
             if 'FLUX_APER_' in column:
-                aper = column.split('FLUX_APER')[1]
+                aper = int(column.split('FLUX_APER')[1])
                 cat[f'FLUXAPER_{aper}_AREA'] = np.pi * np.power(radii[aper],2)
                 cat[f'FLUXERR_APER_{aper}'] = (sig1 * ((popt[0]*np.power(cat[f'FLUXAPER_{aper}_AREA'],popt[1])) + (popt[2]*np.power(cat[f'FLUXAPER_{aper}_AREA'],popt[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
                 cat.remove_column(f'FLUXAPER_{aper}_AREA')
