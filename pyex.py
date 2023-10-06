@@ -181,6 +181,9 @@ class pyex():
             Path to catalog file to be converted.
         """
 
+        if self.other['TO_FLUX'] == False:
+            return
+        
         print('Converting to flux...')
 
         catalogue = ascii.read(cat)
@@ -192,7 +195,7 @@ class pyex():
 
         return
 
-    def convert_to_hdf5(self, catalog, run):
+    def convert_to_hdf5(self, catalog, function):
         """Converts an ascii catalog to HDF5.
 
         Parameters
@@ -221,7 +224,7 @@ class pyex():
             for key in self.config:
                 f[f'config/config/{key}'] = self.config[key]
             f['config/config/FILE'] = self.sexfile
-            f['config/config/RUN'] = run    # Indicate the type of SExtractor run. 
+            f['config/config/FUNCTION'] = function    # Indicate the type of SExtractor run. 
 
             f['config/measurement'] = self.measurement
 
@@ -233,6 +236,32 @@ class pyex():
 
         # Delete the original ascii catalog.
         os.remove(catalog)
+        return
+    
+    def run_SExtractor(self, basecmd, imgconfig):
+        """Passes a command to SExtractor.
+
+        Parameters
+        ----------
+        basecmd (str):
+            String containing the base (file, image, weight) command line arguments.
+        imgconfig (dict):
+            Additional arguments from the config file to be added.
+        """
+
+        SEcmd = copy.deepcopy(basecmd)
+
+        # Add parameters given in the config file to the base command.
+        for (key, value) in imgconfig.items():
+            SEcmd.append("-"+str(key))
+            SEcmd.append(str(value).replace(' ',''))
+
+        # Run SExtractor and print the outputs.
+        p = subprocess.Popen(SEcmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for line in p.stderr:
+            print(line.decode(encoding="UTF-8"))
+        out, err = p.communicate()
+
         return
 
     def measure_uncertainty(self, sci_filename, err_filename, seg_filename, imgconfig):
@@ -250,7 +279,7 @@ class pyex():
             The copy of the configuration parameters specific to this image.
         """
 
-        print('\n Begining uncertainty estimation:')
+        print('\nBegining uncertainty estimation:')
 
         # Open the image files.
         sci_image = fits.open(sci_filename)
@@ -321,7 +350,6 @@ class pyex():
         large = depth.apertures[0].positions
         print(f'Placed {int(depth.napers_used)} large apertures.')
 
-
         # Save image showing aperture locations.
         if self.uncertainty['SAVE_FIGS'] == True:
             fig, ax = plt.subplots(nrows=1, ncols=1)
@@ -332,7 +360,6 @@ class pyex():
             plt.subplots_adjust(left=0.05, right=0.98, bottom=0.05, top=0.95,wspace=0.15)
             plt.savefig(f'{imgconfig["CATALOG_NAME"][:-4]}_large.png')
             plt.close(fig)
-
 
         # Create a new detection image that has value 1 at the aperture centres, zero everywhere else.
         sci_s = np.zeros(sci.shape)
@@ -362,8 +389,8 @@ class pyex():
         large_locations.close()
 
 		# Build the command line arguments for small and large aperture runs.
-        small_run = [self.sexpath, "-c", self.sexfile, small_filename, sci_filename,'-WEIGHT_IMAGE', err_filename]
-        large_run = [self.sexpath, "-c", self.sexfile, large_filename, sci_filename, '-WEIGHT_IMAGE', err_filename]
+        smallcmd = [self.sexpath, "-c", self.sexfile, small_filename, sci_filename,'-WEIGHT_IMAGE', err_filename]
+        largecmd = [self.sexpath, "-c", self.sexfile, large_filename, sci_filename, '-WEIGHT_IMAGE', err_filename]
 
         # Add the correct name and aperture diameters to the command line arguments for the small run.
         errconfig['CATALOG_NAME'] = f'{self.outdir}/small_apertures.temp.cat'
@@ -377,17 +404,8 @@ class pyex():
         parameter_filename = self.write_uncertainty_params(sum(smaller))
         errconfig['PARAMETERS_NAME'] = parameter_filename
 
-		# Add parameters given in the config file.
-        for (key, value) in errconfig.items():
-            small_run.append("-"+str(key))
-            small_run.append(str(value).replace(' ',''))
-
         print('Running SExtractor on the small apertures...')
-        # Run SExtractor and print the outputs.
-        p = subprocess.Popen(small_run, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        for line in p.stderr:
-            print(line.decode(encoding="UTF-8"))
-        out, err_ = p.communicate()
+        self.run_SExtractor(smallcmd, errconfig)
 
         # Remove temporary parameter file and detection image.
         os.remove(parameter_filename)
@@ -405,18 +423,8 @@ class pyex():
         parameter_filename = self.write_uncertainty_params(sum(larger))
         errconfig['PARAMETERS_NAME'] = parameter_filename
 
-		# Add parameters given in the config file.
-        for (key, value) in errconfig.items():
-            large_run.append("-"+str(key))
-            large_run.append(str(value).replace(' ',''))
-
         print('Running SExtractor on the large apertures...')
-
-        # Run SExtractor and print the outputs.
-        p = subprocess.Popen(large_run, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        for line in p.stderr:
-            print(line.decode(encoding="UTF-8"))
-        out, err_ = p.communicate()
+        self.run_SExtractor(largecmd, errconfig)
 
         # Remove temporary parameter file and detection image.
         os.remove(parameter_filename)
@@ -436,7 +444,8 @@ class pyex():
         for column in large.colnames:
             medians.append(median_abs_deviation(large[column][s], nan_policy='omit')*1.48)
 
-        # Set up then4-parameter function.
+        # Defining the model to fit. 
+        # a,b,c,d are the free parameters.
         sig1 = sigma_clipped_stats(sci, mask)[2]    # The sigma-clipped sigma-clipped  
                                                     # standard deviation of all non-object pixels
         Npix = np.pi*(radii**2)    # The number of pixels in each aperture.
@@ -444,40 +453,46 @@ class pyex():
         def model(theta, Npix=Npix):
             a,b,c,d = theta
             return sig1*(((a/1E10)*(Npix**b))+(c*(Npix**(d/1E1))))
+        
+        # Using a chi2 log-likelihood function.
         def lnlike(theta, x, y, yerr):
             return -0.5 * np.sum(((y - model(theta, x))/yerr) ** 2)
         
+        # Requiring all free parameters be > 0.
         def lnprior(theta):
             a, b, c, d = theta
             if a >0 and b>0 and c>0 and d>0:
                 return 0.0
             return -np.inf
         
+        # Set up the MCMC.
         def lnprob(theta, x, y, yerr):
             lp = lnprior(theta)
             if not np.isfinite(lp):
                 return -np.inf
             return lp + lnlike(theta, x, y, yerr)
         
-        Merr = [i*0.05 for i in medians]
-        data = (Npix, medians,Merr)
-        nwalkers = self.uncertainty['WALKERS']
-        niter = self.uncertainty['ITER']
-        initial = np.array(self.uncertainty['INITIAL'])
-        ndim = len(initial)
-        p0 = [np.array(initial) + 1e-7 * np.random.randn(ndim) for i in range(nwalkers)]
-        
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=data)
+        Merr = 0.05*np.median(medians) # Adding a 5% percentage error to the median noise values.
+                                         # This will weight the fit towards the more common smaller radii.
 
+        data = (Npix, medians,Merr)
+        nwalkers = self.uncertainty['WALKERS'] # The number of walkers to use.
+        niter = self.uncertainty['ITER'] # The number of iterations.
+        initial = np.array(self.uncertainty['INITIAL']) # The inital assumptions for the parameter values.
+
+        ndim = len(initial)
+        p0 = [np.array(initial) + 1e-7 * np.random.randn(ndim) for i in range(nwalkers)] # Step methodology.
+        
+        # Begin the MCMC
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=data)
         print('Running MCMC burn-in...')
         p0, _, _ = sampler.run_mcmc(p0, 100)
         sampler.reset()
-
         print('Running MCMC production...')
         pos, prob, state = sampler.run_mcmc(p0, niter)
 
+        # Get most likely parameter values.
         samples = sampler.flatchain
-
         theta_max  = samples[np.argmax(sampler.flatlnprobability)]
 
         # Median error value of the whole map.
@@ -488,7 +503,7 @@ class pyex():
 
         # Calculate the area of each KRON and circular aperture and 
         # compare to fit to get noise value. Scale by the ratio of error map value
-        # at the centre of the source to the median.
+        # at the centre of the source to the median to get a more local value.
 
         print('Calculating noise for catalog sources...')
 
@@ -533,7 +548,7 @@ class pyex():
 
         return
 
-    def run_SExtractor(self, image, weight = None):
+    def SExtract(self, image, weight = None):
         """Runs SExtractor in any of its standard modes.
 
         Performs SExtraction using parameters defined in the config file 
@@ -558,16 +573,6 @@ class pyex():
         # Create a copy of the configuration parameters specific to the image.
         imgconfig = copy.deepcopy(self.config)
 
-        # Add quantities needed for uncertainty estimation to ".sex" if required.
-        if self.uncertainty['EMPIRICAL'] == True:
-            for i in ['A_IMAGE','B_IMAGE','KRON_RADIUS', 'X_IMAGE', 'Y_IMAGE']:
-                if i not in self.measurement:
-                    self.measurement.append(i)
-
-        # Write the output parameters to a text file which can be given to SExtractor.
-        parameter_filename = self.write_params()
-        imgconfig['PARAMETERS_NAME'] = parameter_filename
-
 		# Set the catalog name based on the measurement image.
         if type(image) == list:
             imgconfig['CATALOG_NAME'] = f'{self.outdir}/{os.path.splitext(os.path.basename(image[1]))[0]}.cat'
@@ -575,35 +580,30 @@ class pyex():
         else:
             imgconfig['CATALOG_NAME'] = f'{self.outdir}/{os.path.splitext(os.path.basename(image))[0]}.cat'
             print(f'SExtracting {os.path.splitext(os.path.basename(image))[0]}...')
+
+        # Add quantities needed for uncertainty estimation to ".sex" if required.
+        if self.uncertainty['EMPIRICAL'] == True:
+            for i in ['A_IMAGE','B_IMAGE','KRON_RADIUS', 'X_IMAGE', 'Y_IMAGE']:
+                if i not in self.measurement:
+                    self.measurement.append(i)
+            imgconfig['CHECKIMAGE_TYPE'] = 'SEGMENTATION'
+            imgconfig['CHECKIMAGE_NAME'] = f'{imgconfig["CATALOG_NAME"][:-4]}.temp_seg.fits'
+        
+        # Write the output parameters to a text file which can be given to SExtractor.
+        parameter_filename = self.write_params()
+        imgconfig['PARAMETERS_NAME'] = parameter_filename
 	
 		# Build the command line arguments depending on the mode.
         if (type(image) == list) and (type(weight) == list):
-            popencmd = [self.sexpath, "-c", self.sexfile, image[0], image[1], '-WEIGHT_IMAGE', f'{weight[0]},{weight[1]}']
+            basecmd = [self.sexpath, "-c", self.sexfile, image[0], image[1], '-WEIGHT_IMAGE', f'{weight[0]},{weight[1]}']
         if (type(image) == list) and (type(weight) == type(None)):
-            popencmd = [self.sexpath, "-c", self.sexfile, image[0], image[1]]
+            basecmd = [self.sexpath, "-c", self.sexfile, image[0], image[1]]
         if (type(image) == str) and (type(weight) == type(None)):
-            popencmd = [self.sexpath, "-c", self.sexfile, image]
+            basecmd = [self.sexpath, "-c", self.sexfile, image]
         if (type(image) == str) and (type(weight) == str):
-            popencmd = [self.sexpath, "-c", self.sexfile, image, '-WEIGHT_IMAGE', weight]
-        
-        # Store this base command for later.
-        basecmd = popencmd
+            basecmd = [self.sexpath, "-c", self.sexfile, image, '-WEIGHT_IMAGE', weight]
 
-        # Generate the segmentation map required for uncertainty estimation if required.
-        if self.uncertainty['EMPIRICAL'] == True:
-            imgconfig['CHECKIMAGE_TYPE'] = 'SEGMENTATION'
-            imgconfig['CHECKIMAGE_NAME'] = f'{imgconfig["CATALOG_NAME"][:-4]}.temp_seg.fits'
-
-		# Add parameters given in the config file.
-        for (key, value) in imgconfig.items():
-            popencmd.append("-"+str(key))
-            popencmd.append(str(value).replace(' ',''))
-
-        # Run SExtractor and print the outputs.
-        p = subprocess.Popen(popencmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        for line in p.stderr:
-            print(line.decode(encoding="UTF-8"))
-        out, err = p.communicate()
+        self.run_SExtractor(basecmd, imgconfig)
 
         # Remove temporary parameter file.
         os.remove(parameter_filename)
@@ -616,17 +616,16 @@ class pyex():
                 self.measure_uncertainty(sci_filename=image[1], err_filename=weight[1], seg_filename=imgconfig['CHECKIMAGE_NAME'], imgconfig=imgconfig)
 
         # Convert to flux if required.
-        if self.other['TO_FLUX'] != False:
-            self.convert_to_flux(imgconfig['CATALOG_NAME'])
+        self.convert_to_flux(imgconfig['CATALOG_NAME'])
 
         # Convert catalogue to HDF5.
-        self.convert_to_hdf5(imgconfig['CATALOG_NAME'], run = 'standard')
+        self.convert_to_hdf5(imgconfig['CATALOG_NAME'], function = 'SExtract')
 
         print(f'Completed SExtraction and saved to {imgconfig["CATALOG_NAME"][:-4]}.hdf5 \n')
 
         return
     
-    def psf_corrected_SExtractor(self, detection, images, weights = None):
+    def psf_corrected_SExtract(self, detection, images, weights = None):
         """Runs SExtractor in two image mode and perform a PSF correction.
 
         Performs SExtraction using parameters defined in the config file on:
@@ -656,6 +655,8 @@ class pyex():
             for i in ['A_IMAGE','B_IMAGE','KRON_RADIUS', 'X_IMAGE', 'Y_IMAGE']:
                 if i not in self.measurement:
                     self.measurement.append(i)
+            imgconfig['CHECKIMAGE_TYPE'] = 'SEGMENTATION'
+            imgconfig['CHECKIMAGE_NAME'] = f'{self.outdir}/{os.path.splitext(os.path.basename(images[0]))[0]}.temp_seg.fits'
 
         # Write the output parameters to a text file which can be given to SExtractor.
         parameter_filename = self.write_params()
@@ -671,29 +672,16 @@ class pyex():
             unmatched = [self.sexpath, "-c", self.sexfile, detection, images[1], '-WEIGHT_IMAGE', f'{weights[0]},{weights[2]}']
             matched = [self.sexpath, "-c", self.sexfile, detection, images[2], '-WEIGHT_IMAGE', f'{weights[0]},{weights[2]}']
 
-        # Generate the segmentation map required for uncertainty estimation if required.
-        if self.uncertainty['EMPIRICAL'] == True:
-            imgconfig['CHECKIMAGE_TYPE'] = 'SEGMENTATION'
-            imgconfig['CHECKIMAGE_NAME'] = f'{self.outdir}/{os.path.splitext(os.path.basename(images[0]))[0]}.temp_seg.fits'
-
         cat_filenames = []
 		# Loop over each image and 
-        for i, popencmd in enumerate([uncorrected, unmatched, matched]):
+        for i, basecmd in enumerate([uncorrected, unmatched, matched]):
             # change name,
             imgconfig['CATALOG_NAME'] = f'{self.outdir}/{os.path.splitext(os.path.basename(images[i]))[0]}.temp.cat'
-            print(f'SExtracting {os.path.splitext(os.path.basename(images[i]))[0]}...')
             cat_filenames.append(imgconfig['CATALOG_NAME'])
 
-		    # add parameters given in the config file,
-            for (key, value) in imgconfig.items():
-                popencmd.append("-"+str(key))
-                popencmd.append(str(value).replace(' ',''))
-            
-            # and run SExtractor.
-            p = subprocess.Popen(popencmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            for line in p.stderr:
-                print(line.decode(encoding="UTF-8"))
-            out, err = p.communicate()
+            print(f'SExtracting {os.path.splitext(os.path.basename(images[i]))[0]}...')
+
+            self.run_SExtractor(basecmd, imgconfig)
 
         # Remove temporary parameter file.
         os.remove(parameter_filename)
@@ -703,13 +691,13 @@ class pyex():
         if self.uncertainty['EMPIRICAL'] == True:
             self.measure_uncertainty(sci_filename=images[0], err_filename=weights[1], seg_filename=imgconfig['CHECKIMAGE_NAME'], imgconfig=imgconfig)
 
+        print('Applying correction...')
         # Read in the created catalogues.
         uncorrected = ascii.read(cat_filenames[0])
         unmatched = ascii.read(cat_filenames[1])
         matched = ascii.read(cat_filenames[2])
 
         # Calculate and apply the psf correction to each flux bands count and noise.
-        print('Applying correction...')
         for column in uncorrected.colnames:
             if ('FLUX' in column) and ('ERR' not in column):
                 uncorrected[column] = uncorrected[column] * (unmatched[column]/matched[column])
@@ -721,11 +709,10 @@ class pyex():
             os.remove(filename)
 
         # Convert counts to flux if needed.
-        if self.other['TO_FLUX'] != False:
-            self.convert_to_flux(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat')
+        self.convert_to_flux(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat')
 
         # Convert catalogue to HDF5.
-        self.convert_to_hdf5(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat', run = 'psf_corrected')
+        self.convert_to_hdf5(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat', function = 'psf_corrected_SExtract')
 
         print(f'Completed SExtraction and saved to {imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.hdf5 \n')
 
