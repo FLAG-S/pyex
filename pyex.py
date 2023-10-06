@@ -1,24 +1,24 @@
 import os
 import yaml
-
-
 import subprocess
 import re
 import copy
+import h5py
+
+import numpy as np
+import matplotlib.pyplot as plt
+
 
 from astropy.table import Table
 from astropy.io import ascii, fits
 from astropy.visualization import simple_norm
-import h5py
+from astropy.stats import sigma_clipped_stats
+
+from scipy.stats import median_abs_deviation
 
 from photutils.utils import ImageDepth
 
-import numpy as np
-
-from astropy.stats import sigma_clipped_stats
-from scipy.optimize import curve_fit
-import matplotlib.pyplot as plt
-from scipy.stats import median_abs_deviation
+import emcee
 
 class pyex():
 
@@ -266,17 +266,18 @@ class pyex():
         seg_image.close()
 
         # Create a copy of the configuration parameters specific to the image.
-        appconfig = copy.deepcopy(self.config)
+        errconfig = copy.deepcopy(self.config)
 
         # Set some values to those appropriate for uncertainty estimation.
-        appconfig['DETECT_MINAREA'] = 1
-        appconfig['DETECT_THRESH'] = 1E-6
-        appconfig['FILTER'] = 'N'
-        appconfig['CLEAN'] = 'N'
-        appconfig['MASK_TYPE'] = 'NONE'
-        appconfig['BACK_TYPE'] = 'MANUAL'
-        appconfig['BACK_VALUE'] = 0.0
-        
+        errconfig['DETECT_MINAREA'] = 1
+        errconfig['DETECT_THRESH'] = 1E-12
+        errconfig['FILTER'] = 'N'
+        errconfig['CLEAN'] = 'N'
+        errconfig['MASK_TYPE'] = 'NONE'
+        errconfig['BACK_TYPE'] = 'MANUAL'
+        errconfig['BACK_VALUE'] = 0.0
+        errconfig['CHECKIMAGE_TYPE'] = 'NONE'
+
         # Mask positive areas of the segmentation map and invalid areas in the error map.
         mask = (seg > 0)+np.isnan(err)+(err<0)+(err>1000)
 
@@ -296,6 +297,7 @@ class pyex():
                             niters=1, overlap=False, overlap_maxiters=100000)           
         limits = depth(sci, mask)
         small = depth.apertures[0].positions
+        print(f'Placed {int(depth.napers_used)} small apertures.')
 
         # Save image showing aperture locations.
         if self.uncertainty['SAVE_FIGS'] == True:
@@ -317,6 +319,8 @@ class pyex():
                             niters=1, overlap=False,overlap_maxiters=100000)        
         limits = depth(sci, mask)
         large = depth.apertures[0].positions
+        print(f'Placed {int(depth.napers_used)} large apertures.')
+
 
         # Save image showing aperture locations.
         if self.uncertainty['SAVE_FIGS'] == True:
@@ -362,19 +366,19 @@ class pyex():
         large_run = [self.sexpath, "-c", self.sexfile, large_filename, sci_filename, '-WEIGHT_IMAGE', err_filename]
 
         # Add the correct name and aperture diameters to the command line arguments for the small run.
-        appconfig['CATALOG_NAME'] = f'{self.outdir}/small_apertures.temp.cat'
+        errconfig['CATALOG_NAME'] = f'{self.outdir}/small_apertures.temp.cat'
         apertures = ''
         for radius in radii[smaller]:
             apertures += str(round(radius*2,2))+','
         apertures = apertures[:-1]
-        appconfig['PHOT_APERTURES'] = apertures
+        errconfig['PHOT_APERTURES'] = apertures
 
         # Write the output parameters to a text file which can be given to SExtractor.
         parameter_filename = self.write_uncertainty_params(sum(smaller))
-        appconfig['PARAMETERS_NAME'] = parameter_filename
+        errconfig['PARAMETERS_NAME'] = parameter_filename
 
 		# Add parameters given in the config file.
-        for (key, value) in appconfig.items():
+        for (key, value) in errconfig.items():
             small_run.append("-"+str(key))
             small_run.append(str(value).replace(' ',''))
 
@@ -390,19 +394,19 @@ class pyex():
         os.remove(small_filename)
 
         # Add the correct name and aperture diameters to the command line arguments for the large run.
-        appconfig['CATALOG_NAME'] = f'{self.outdir}/large_apertures.temp.cat'
+        errconfig['CATALOG_NAME'] = f'{self.outdir}/large_apertures.temp.cat'
         apertures = ''
         for radius in radii[larger]:
             apertures += str(round(radius*2,2))+','
         apertures = apertures[:-1]
-        appconfig['PHOT_APERTURES'] = apertures
+        errconfig['PHOT_APERTURES'] = apertures
 
         # Write the output parameters to a text file which can be given to SExtractor.
         parameter_filename = self.write_uncertainty_params(sum(larger))
-        appconfig['PARAMETERS_NAME'] = parameter_filename
+        errconfig['PARAMETERS_NAME'] = parameter_filename
 
 		# Add parameters given in the config file.
-        for (key, value) in appconfig.items():
+        for (key, value) in errconfig.items():
             large_run.append("-"+str(key))
             large_run.append(str(value).replace(' ',''))
 
@@ -437,13 +441,44 @@ class pyex():
                                                     # standard deviation of all non-object pixels
         Npix = np.pi*(radii**2)    # The number of pixels in each aperture.
 
-        def func(N, a, b, c, d):
-            return sig1*((a*np.power(N,b))+(c*np.power(N,d)))
+        def model(theta, Npix=Npix):
+            a,b,c,d = theta
+            return sig1*(((a/1E10)*(Npix**b))+(c*(Npix**(d/1E1))))
+        def lnlike(theta, x, y, yerr):
+            return -0.5 * np.sum(((y - model(theta, x))/yerr) ** 2)
         
-        print('Fitting function to median noise values...')
+        def lnprior(theta):
+            a, b, c, d = theta
+            if a >0 and b>0 and c>0 and d>0:
+                return 0.0
+            return -np.inf
+        
+        def lnprob(theta, x, y, yerr):
+            lp = lnprior(theta)
+            if not np.isfinite(lp):
+                return -np.inf
+            return lp + lnlike(theta, x, y, yerr)
+        
+        Merr = [i*0.05 for i in medians]
+        data = (Npix, medians,Merr)
+        nwalkers = self.uncertainty['WALKERS']
+        niter = self.uncertainty['ITER']
+        initial = np.array(self.uncertainty['INITIAL'])
+        ndim = len(initial)
+        p0 = [np.array(initial) + 1e-7 * np.random.randn(ndim) for i in range(nwalkers)]
+        
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=data)
 
-        # Fit function to the data.
-        popt, pcov = curve_fit(func, Npix, medians, maxfev = 5000)
+        print('Running MCMC burn-in...')
+        p0, _, _ = sampler.run_mcmc(p0, 100)
+        sampler.reset()
+
+        print('Running MCMC production...')
+        pos, prob, state = sampler.run_mcmc(p0, niter)
+
+        samples = sampler.flatchain
+
+        theta_max  = samples[np.argmax(sampler.flatlnprobability)]
 
         # Median error value of the whole map.
         median_err = np.median(err[np.invert(np.isnan(err))])
@@ -460,16 +495,16 @@ class pyex():
         for column in cat.colnames:
             if column == 'FLUX_AUTO':
                 cat['FLUX_AUTO_AREA'] = np.pi * cat['A_IMAGE'] * cat['B_IMAGE'] * np.power(cat['KRON_RADIUS'],2)
-                cat['FLUXERR_AUTO'] = (sig1 * ((popt[0]*np.power(cat['FLUX_AUTO_AREA'],popt[1])) + (popt[2]*np.power(cat['FLUX_AUTO_AREA'],popt[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
+                cat['FLUXERR_AUTO'] = (sig1 * ((theta_max[0]*np.power(cat['FLUX_AUTO_AREA'],theta_max[1])) + (theta_max[2]*np.power(cat['FLUX_AUTO_AREA'],theta_max[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
                 cat.remove_column('FLUX_AUTO_AREA')
             if column == 'FLUX_APER':
                 cat[f'FLUXAPER_AREA'] = np.pi * np.power(radii[0],2)
-                cat['FLUXERR_APER'] = (sig1 * ((popt[0]*np.power(cat['FLUXAPER_AREA'],popt[1])) + (popt[2]*np.power(cat['FLUXAPER_AREA'],popt[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
+                cat['FLUXERR_APER'] = (sig1 * ((theta_max[0]*np.power(cat['FLUXAPER_AREA'],theta_max[1])) + (theta_max[2]*np.power(cat['FLUXAPER_AREA'],theta_max[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
                 cat.remove_column('FLUXAPER_AREA')
             if 'FLUX_APER_' in column:
-                aper = int(column.split('FLUX_APER')[1])
+                aper = int(column.split('FLUX_APER_')[1])
                 cat[f'FLUXAPER_{aper}_AREA'] = np.pi * np.power(radii[aper],2)
-                cat[f'FLUXERR_APER_{aper}'] = (sig1 * ((popt[0]*np.power(cat[f'FLUXAPER_{aper}_AREA'],popt[1])) + (popt[2]*np.power(cat[f'FLUXAPER_{aper}_AREA'],popt[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
+                cat[f'FLUXERR_APER_{aper}'] = (sig1 * ((theta_max[0]*np.power(cat[f'FLUXAPER_{aper}_AREA'],theta_max[1])) + (theta_max[2]*np.power(cat[f'FLUXAPER_{aper}_AREA'],theta_max[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
                 cat.remove_column(f'FLUXAPER_{aper}_AREA')
         cat.write(imgconfig['CATALOG_NAME'], format='ascii', overwrite = True)
 
@@ -479,8 +514,8 @@ class pyex():
             x = np.linspace(0, max(Npix),10000)
             fig = plt.figure()
             ax = plt.gca()
-            plt.scatter(np.sqrt(Npix),medians, s=15, color = 'white', edgecolors='blue', alpha = 0.8)
-            plt.plot(np.sqrt(x), func(x, popt[0], popt[1], popt[2], popt[3]), color = 'grey', linestyle = '--', linewidth = 1)
+            plt.scatter(np.sqrt(Npix),medians,s=15, color = 'white', edgecolors='blue', alpha = 0.8)
+            plt.plot(np.sqrt(x), model(theta_max, x), color = 'grey', linestyle = '--', linewidth = 1)  
             plt.xlabel('sqrt(Number of pixels in aperture)')
             plt.ylabel('Noise in aperture [counts]')
             plt.text(min(x)*0.001, max(medians)*0.98, f'{os.path.splitext(os.path.basename(imgconfig["CATALOG_NAME"]))[0].split(".")[0]}')

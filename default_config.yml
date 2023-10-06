@@ -3,31 +3,28 @@
 CATALOG_TYPE: 'ASCII_HEAD'    # Leave this here!
                               # All output catalogs are in HDF5 format.
 VERBOSE_TYPE: 'QUIET'
-CATALOG_NAME: 'cat'
-FILTER: 'N'
-STARNNW_NAME: '/Users/jt458/pyex/sextractor/config/default.nnw'
-WEIGHT_TYPE: 'map_rms,map_rms'
-MAG_ZEROPOINT: 28.0865
-GAIN: 20557.687
-
+FILTER_NAME: 'tophat_4.0_5x5.conv'
+STARNNW_NAME: 'default.nnw'
 ---
+
 # Define the desired output quantities here.
-
- - NUMBER    # Must have at least one output parameter so this stays here.
-
+# Must give at least one.
+ - X_IMAGE
+ - Y_IMAGE
  - FLUX_AUTO
  - FLUXERR_AUTO
+ - KRON_RADIUS
 ---
 
 # Define uncertainty estimation parameters here.
 # This is only compatible with FLUX_AUTO and FLUX_APER, when a weight image is given.
 # Will overwrite the default uncertainty estimation for these fluxes.
 
-# Will overide any CHECK_IMAGE settings above to 'NONE')
+# Will overide any CHECK_IMAGE settings to 'NONE'
 # Will also include A_IMAGE, B_IMAGE, X_IMAGE, Y_IMAGE and KRON_RADIUS required for calculation in output catalogue.
 
 
-EMPIRICAL: True    # Wheather to perform the empirical estimation.
+EMPIRICAL: True    # Whether to perform the empirical estimation.
 
  # The aperture radii to use for uncertainty estimation. [pixels]
 RADII: [1.665,3.33172414,4.99844828,6.66517241,8.33189655,9.99862069,
@@ -38,14 +35,18 @@ RADII: [1.665,3.33172414,4.99844828,6.66517241,8.33189655,9.99862069,
 
 D_SMALL: False    # The distance between apertures to enforce in the first iteration. [pixels]
                   # If False use the maximum diameter in this iteration.
-D_LARGE: 40      # The same but for the larger iteration. [pixels]
+D_LARGE: False      # The same but for the larger iteration. [pixels]
 
 N_SMALL: 3000    # The number of apertures with radii below the median to use in the first iteration.
 N_LARGE: 500    # The number of apertures with radii above the median to use in the second iteration.
+
+WALKERS: 240    # Number of walkers to use in the MCMC.
+ITER: 1024    # Number of MCMC iterations.
+INITIAL: [1,1,1,1]    # Inital parameter guesses. 
 
 SAVE_FIGS: True    # Save an images showing aperture locations and a plot of noise vs aperture size.
 ---
 
 # Other parameters go here.
 
-TO_FLUX: 21.15   # Convert from counts to flux. False or conversion factor.
+TO_FLUX: False   # Convert from counts to flux. False or conversion factor.
