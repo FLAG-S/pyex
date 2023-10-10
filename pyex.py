@@ -13,6 +13,8 @@ from astropy.table import Table
 from astropy.io import ascii, fits
 from astropy.visualization import simple_norm
 from astropy.stats import sigma_clipped_stats
+from astropy.wcs import WCS
+from astropy.wcs.utils import pixel_to_skycoord
 
 from scipy.stats import median_abs_deviation
 
@@ -170,7 +172,7 @@ class pyex():
     
 
     def convert_to_flux(self, cat):
-        """Convert counts in a catalog to fluxes.
+        """Convert counts in a catalogue to fluxes.
 
         Uses multiplicative conversion factor to convert from pure counts
         to a flux.
@@ -178,7 +180,7 @@ class pyex():
         Parameters
         ----------
         cat (str):
-            Path to catalog file to be converted.
+            Path to catalogue file to be converted.
         """
 
         if self.other['TO_FLUX'] == False:
@@ -186,33 +188,33 @@ class pyex():
         
         print('Converting to flux...')
 
-        catalogue = ascii.read(cat)
+        catalogueue = ascii.read(cat)
         # Search for any flux columns and apply conversion.
-        for column in catalogue.colnames:
+        for column in catalogueue.colnames:
             if 'FLUX' in column:
-                catalogue[column] = catalogue[column] * self.other['TO_FLUX']
-        catalogue.write(cat, format='ascii', overwrite = True)
+                catalogueue[column] = catalogueue[column] * self.other['TO_FLUX']
+        catalogueue.write(cat, format='ascii', overwrite = True)
 
         return
 
-    def convert_to_hdf5(self, catalog, function):
-        """Converts an ascii catalog to HDF5.
+    def convert_to_hdf5(self, catalogue, function):
+        """Converts an ascii catalogue to HDF5.
 
         Parameters
         ----------
-        catalog (str):
-            Path to catalog file to be converted.
+        catalogue (str):
+            Path to catalogue file to be converted.
         run (str):
-            The type of SExtractor run used to generate the catalog.
+            The type of SExtractor run used to generate the catalogue.
         """
 
         print('Saving to HDF5...')
 
-        # Read the ascii catalog.
-        cat = Table.read(catalog, format='ascii')
+        # Read the ascii catalogue.
+        cat = Table.read(catalogue, format='ascii')
 
         # Create HDF5 file with the same name.
-        with h5py.File(f'{catalog[:-3]}hdf5', 'w') as f:
+        with h5py.File(f'{catalogue[:-3]}hdf5', 'w') as f:
 
             # Add contents to a "photometry" group.
             f.create_group('photometry')
@@ -234,8 +236,8 @@ class pyex():
             for key in self.other:
                 f[f'config/other/{key}'] = self.other[key]
 
-        # Delete the original ascii catalog.
-        os.remove(catalog)
+        # Delete the original ascii catalogue.
+        os.remove(catalogue)
         return
     
     def run_SExtractor(self, basecmd, imgconfig):
@@ -261,6 +263,30 @@ class pyex():
         for line in p.stderr:
             print(line.decode(encoding="UTF-8"))
         out, err = p.communicate()
+
+        return
+    
+    def get_WCS_coordinates(self, catalogue, detection_filename):
+
+        if self.other['GET_WCS'] == False:
+            return
+        
+        print('Getting WCS coordinates...')
+
+        detection = fits.open(detection_filename)
+        header = detection[0].header
+        detection.close()
+
+        wcs = WCS(header)
+
+        cat = Table.read(catalogue, format='ascii')
+
+        coordinates = pixel_to_skycoord(cat['X_IMAGE'], cat['Y_IMAGE'], wcs)
+
+        cat['RA'] = coordinates.ra.degree
+        cat['DEC'] = coordinates.dec.degree
+
+        cat.write(catalogue, format='ascii', overwrite = True)
 
         return
 
@@ -430,7 +456,7 @@ class pyex():
         os.remove(parameter_filename)
         os.remove(large_filename)
 
-        # Read in the catalogs with the different aperture measurements.
+        # Read in the catalogues with the different aperture measurements.
         small = ascii.read(f'{self.outdir}/small_apertures.temp.cat')
         large = ascii.read(f'{self.outdir}/large_apertures.temp.cat')
 
@@ -498,14 +524,14 @@ class pyex():
         # Median error value of the whole map.
         median_err = np.median(err[np.invert(np.isnan(err))])
 
-        # Read original catalog produced by SExtractor.
+        # Read original catalogue produced by SExtractor.
         cat = ascii.read(imgconfig['CATALOG_NAME'])
 
         # Calculate the area of each KRON and circular aperture and 
         # compare to fit to get noise value. Scale by the ratio of error map value
         # at the centre of the source to the median to get a more local value.
 
-        print('Calculating noise for catalog sources...')
+        print('Calculating noise for catalogue sources...')
 
         for column in cat.colnames:
             if column == 'FLUX_AUTO':
@@ -573,7 +599,7 @@ class pyex():
         # Create a copy of the configuration parameters specific to the image.
         imgconfig = copy.deepcopy(self.config)
 
-		# Set the catalog name based on the measurement image.
+		# Set the catalogue name based on the measurement image.
         if type(image) == list:
             imgconfig['CATALOG_NAME'] = f'{self.outdir}/{os.path.splitext(os.path.basename(image[1]))[0]}.cat'
             print(f'SExtracting {os.path.splitext(os.path.basename(image[1]))[0]}...')
@@ -618,7 +644,13 @@ class pyex():
         # Convert to flux if required.
         self.convert_to_flux(imgconfig['CATALOG_NAME'])
 
-        # Convert catalogue to HDF5.
+        # Get WCS coordinates if required.
+        if (type(image) == str):
+            self.get_WCS_coordinates(catalogue=imgconfig['CATALOG_NAME'], detection_filename=image)
+        else:
+            self.get_WCS_coordinates(imgconfig['CATALOG_NAME'], detection_filename=image[0])
+
+        # Convert catalogueue to HDF5.
         self.convert_to_hdf5(imgconfig['CATALOG_NAME'], function = 'SExtract')
 
         print(f'Completed SExtraction and saved to {imgconfig["CATALOG_NAME"][:-4]}.hdf5 \n')
@@ -692,7 +724,7 @@ class pyex():
             self.measure_uncertainty(sci_filename=images[0], err_filename=weights[1], seg_filename=imgconfig['CHECKIMAGE_NAME'], imgconfig=imgconfig)
 
         print('Applying correction...')
-        # Read in the created catalogues.
+        # Read in the created catalogueues.
         uncorrected = ascii.read(cat_filenames[0])
         unmatched = ascii.read(cat_filenames[1])
         matched = ascii.read(cat_filenames[2])
@@ -703,7 +735,7 @@ class pyex():
                 uncorrected[column] = uncorrected[column] * (unmatched[column]/matched[column])
                 uncorrected[f'FLUXERR{column.split("FLUX")[1]}'] = uncorrected[f'FLUXERR{column.split("FLUX")[1]}'] * (unmatched[column]/matched[column])
 
-        # Write to a new corrected catalogue and remove .temp catalogues.
+        # Write to a new corrected catalogueue and remove .temp catalogueues.
         uncorrected.write(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat', format='ascii', overwrite = True)
         for filename in cat_filenames:
             os.remove(filename)
@@ -711,7 +743,10 @@ class pyex():
         # Convert counts to flux if needed.
         self.convert_to_flux(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat')
 
-        # Convert catalogue to HDF5.
+        # Get WCS coordinates if required.
+        self.get_WCS_coordinates(catalogue=f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat', detection_filename=detection)
+
+        # Convert catalogueue to HDF5.
         self.convert_to_hdf5(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat', function = 'psf_corrected_SExtract')
 
         print(f'Completed SExtraction and saved to {imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.hdf5 \n')

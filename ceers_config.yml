@@ -1,12 +1,13 @@
 # Parameters that overwride the default or selected .sex file go here.
 
 CATALOG_TYPE: 'ASCII_HEAD'    # Leave this here!
-                              # All output catalogs are in HDF5 format.
+                              # All output catalogues are in HDF5 format.
 VERBOSE_TYPE: 'QUIET'
 MAG_ZEROPOINT: 28.0865
 GAIN: 20557.687
 FILTER_NAME: '/Users/jt458/sextractor-2.25.0/config/tophat_4.0_5x5.conv'
 STARNNW_NAME: '/Users/jt458/sextractor-2.25.0/config/default.nnw'
+CHECKIMAGE_NAME: '/Users/jt458/pyex/output/segmap.fits'
 MEMORY_OBJSTACK: 3000
 MEMORY_PIXSTACK: 300000
 MEMORY_BUFSIZE: 1024
@@ -25,7 +26,7 @@ MEMORY_BUFSIZE: 1024
 # Will overwrite the default uncertainty estimation for these fluxes.
 
 # Will overide any CHECK_IMAGE settings above to 'NONE')
-# Will also include A_IMAGE, B_IMAGE, X_IMAGE, Y_IMAGE and KRON_RADIUS required for calculation in output catalogue.
+# Will also include A_IMAGE, B_IMAGE, X_IMAGE, Y_IMAGE and KRON_RADIUS required for calculation in output catalogueue.
 
 
 EMPIRICAL: True    # Whether to perform the empirical estimation.
@@ -54,3 +55,5 @@ SAVE_FIGS: True    # Save an images showing aperture locations and a plot of noi
 # Other parameters go here.
 
 TO_FLUX: 21.15   # Convert from counts to flux. False or conversion factor.
+
+GET_WCS: True
