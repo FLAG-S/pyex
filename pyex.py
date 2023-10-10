@@ -188,12 +188,12 @@ class pyex():
         
         print('Converting to flux...')
 
-        catalogueue = ascii.read(cat)
+        catalogue = ascii.read(cat)
         # Search for any flux columns and apply conversion.
-        for column in catalogueue.colnames:
+        for column in catalogue.colnames:
             if 'FLUX' in column:
-                catalogueue[column] = catalogueue[column] * self.other['TO_FLUX']
-        catalogueue.write(cat, format='ascii', overwrite = True)
+                catalogue[column] = catalogue[column] * self.other['TO_FLUX']
+        catalogue.write(cat, format='ascii', overwrite = True)
 
         return
 
@@ -305,7 +305,7 @@ class pyex():
             The copy of the configuration parameters specific to this image.
         """
 
-        print('\nBegining uncertainty estimation:')
+        print('\nbeginning uncertainty estimation:')
 
         # Open the image files.
         sci_image = fits.open(sci_filename)
@@ -536,16 +536,16 @@ class pyex():
         for column in cat.colnames:
             if column == 'FLUX_AUTO':
                 cat['FLUX_AUTO_AREA'] = np.pi * cat['A_IMAGE'] * cat['B_IMAGE'] * np.power(cat['KRON_RADIUS'],2)
-                cat['FLUXERR_AUTO'] = (sig1 * ((theta_max[0]*np.power(cat['FLUX_AUTO_AREA'],theta_max[1])) + (theta_max[2]*np.power(cat['FLUX_AUTO_AREA'],theta_max[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
+                cat['FLUXERR_AUTO'] = model(theta_max,cat['FLUX_AUTO_AREA'])*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
                 cat.remove_column('FLUX_AUTO_AREA')
             if column == 'FLUX_APER':
                 cat[f'FLUXAPER_AREA'] = np.pi * np.power(radii[0],2)
-                cat['FLUXERR_APER'] = (sig1 * ((theta_max[0]*np.power(cat['FLUXAPER_AREA'],theta_max[1])) + (theta_max[2]*np.power(cat['FLUXAPER_AREA'],theta_max[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
+                cat['FLUXERR_APER'] = model(theta_max, cat[f'FLUXAPER_AREA'])*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
                 cat.remove_column('FLUXAPER_AREA')
             if 'FLUX_APER_' in column:
                 aper = int(column.split('FLUX_APER_')[1])
                 cat[f'FLUXAPER_{aper}_AREA'] = np.pi * np.power(radii[aper],2)
-                cat[f'FLUXERR_APER_{aper}'] = (sig1 * ((theta_max[0]*np.power(cat[f'FLUXAPER_{aper}_AREA'],theta_max[1])) + (theta_max[2]*np.power(cat[f'FLUXAPER_{aper}_AREA'],theta_max[3]))))*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
+                cat[f'FLUXERR_APER_{aper}'] = model(theta_max, cat[f'FLUXAPER_{aper}_AREA'])*(err[cat['Y_IMAGE'].astype(int), cat['X_IMAGE'].astype(int)]/median_err)
                 cat.remove_column(f'FLUXAPER_{aper}_AREA')
         cat.write(imgconfig['CATALOG_NAME'], format='ascii', overwrite = True)
 
@@ -650,7 +650,7 @@ class pyex():
         else:
             self.get_WCS_coordinates(imgconfig['CATALOG_NAME'], detection_filename=image[0])
 
-        # Convert catalogueue to HDF5.
+        # Convert catalogue to HDF5.
         self.convert_to_hdf5(imgconfig['CATALOG_NAME'], function = 'SExtract')
 
         print(f'Completed SExtraction and saved to {imgconfig["CATALOG_NAME"][:-4]}.hdf5 \n')
@@ -724,7 +724,7 @@ class pyex():
             self.measure_uncertainty(sci_filename=images[0], err_filename=weights[1], seg_filename=imgconfig['CHECKIMAGE_NAME'], imgconfig=imgconfig)
 
         print('Applying correction...')
-        # Read in the created catalogueues.
+        # Read in the created catalogues.
         uncorrected = ascii.read(cat_filenames[0])
         unmatched = ascii.read(cat_filenames[1])
         matched = ascii.read(cat_filenames[2])
@@ -735,7 +735,7 @@ class pyex():
                 uncorrected[column] = uncorrected[column] * (unmatched[column]/matched[column])
                 uncorrected[f'FLUXERR{column.split("FLUX")[1]}'] = uncorrected[f'FLUXERR{column.split("FLUX")[1]}'] * (unmatched[column]/matched[column])
 
-        # Write to a new corrected catalogueue and remove .temp catalogueues.
+        # Write to a new corrected catalogue and remove .temp catalogues.
         uncorrected.write(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat', format='ascii', overwrite = True)
         for filename in cat_filenames:
             os.remove(filename)
@@ -746,7 +746,7 @@ class pyex():
         # Get WCS coordinates if required.
         self.get_WCS_coordinates(catalogue=f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat', detection_filename=detection)
 
-        # Convert catalogueue to HDF5.
+        # Convert catalogue to HDF5.
         self.convert_to_hdf5(f'{imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.cat', function = 'psf_corrected_SExtract')
 
         print(f'Completed SExtraction and saved to {imgconfig["CATALOG_NAME"][:-9]}_psfcorrected.hdf5 \n')
