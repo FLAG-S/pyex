@@ -1,0 +1,49 @@
+# General parameters:
+# ----------------------------------------------------------------------------------------------------
+PSF_DIR: '/Users/jt458/primer/PSF'    # Directory in which to store PSFs (str).
+FIG_DIR: '/Users/jt458/primer/plots'    # Directory in which to store figures (str).
+SAVE_FIGS: True    # Whether or not to save figures (bool).
+
+MAG_ZP: 28.9    # Magnitude zero point (float).
+
+PIXEL_SCALE: 0.04    # Image pixel scale (float).
+PSF_SIZE: 101    # Side length of PSF cutout in pixels (int).
+
+# Star identification parameters:
+# ----------------------------------------------------------------------------------------------------
+BLOCK_SIZE: 5    # Block size for block reduction (int).
+NSIG_THRESHOLD: 10    # Peaks must be above NSIG_THRESHOLD*(MAD of image) to be considered (int).
+N_PEAKS: 1000    # Maximum number of peaks to identify. If exeeded use best (int).
+RADII: [0.5,1.,2.,4.,7.5]    # Five radii within which to measure curve of growth.
+
+STAR_SIZE: 15    # Side length of star cutouts in pixels (int).
+SHIFT_LIM: 2    # Maximum accepted shit from centre in pixels (int).
+MAG_MIN: 24.0    # Stars must be brighter than this magnitude limit (float).
+MAG_MAX: 18.0    # Stars must be dimmer than this magnitude limit (float).
+THRESHOLD_MIN: -0.5    # Minimum pixel value must be above this limit (float).
+
+RANGE: [0,4]    # Range in which to bin ratio of COG at maximum and middle value (list).
+THRESHOLD_MODE: [-0.2,0.2]    # Stars must be within this range of the modal ratio (list).
+
+SIGMA_FIT: 2.8    # Value to use for sigma clipping around linear relation (float).
+
+# PSF Parameters:
+# ----------------------------------------------------------------------------------------------------
+NORM_RADIUS: 8    # Radius in pixels to use when measuring PSF (int).
+WINDOW: 21    # Size in pixels of window to use for centring (int).
+
+STACK_SIGMA: 4    # The upper and lower clipping limit to use when stacking.
+
+SNR_LIM: 1000    # Required SNR within NORM_RADIUS (int).
+DSHIFT_LIM: 3    # Maximum accepted difference in shift between central window and whole cutout (int).
+
+# Kernel Parameters:
+# ----------------------------------------------------------------------------------------------------
+OVERSAMPLE: 3    # Degree of oversampling to use for matching kernel generation (int).
+R_PARAMETER: 0.003    # Regularisation parameter to use with pypher (float).
+ANGLE_S: 0.0    # Angle of the source PSF given to pypher (float).
+ANGLE_T: 0.0    # Angle of the target PSF given to pypher (float).
+
+# Convolution Parameters:
+# ----------------------------------------------------------------------------------------------------
+USE_FFT: True   # Use fft for image convolution. More efficient for larger kernels.

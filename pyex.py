@@ -305,7 +305,7 @@ class pyex():
             The copy of the configuration parameters specific to this image.
         """
 
-        print('\nbeginning uncertainty estimation:')
+        print('\nBeginning uncertainty estimation:')
 
         # Open the image files.
         sci_image = fits.open(sci_filename)
@@ -363,7 +363,7 @@ class pyex():
             depth.apertures[0].plot(ax, color=color)
             plt.subplots_adjust(left=0.05, right=0.98, bottom=0.05, top=0.95,wspace=0.15)
             plt.savefig(f'{imgconfig["CATALOG_NAME"][:-4]}_small.png')
-            plt.close(fig)
+            fig.clear()
 
         # Get locations of second iteration larger apertures.
         if self.uncertainty['D_LARGE'] == False:
@@ -385,7 +385,7 @@ class pyex():
             depth.apertures[0].plot(ax, color=color)
             plt.subplots_adjust(left=0.05, right=0.98, bottom=0.05, top=0.95,wspace=0.15)
             plt.savefig(f'{imgconfig["CATALOG_NAME"][:-4]}_large.png')
-            plt.close(fig)
+            fig.clear()
 
         # Create a new detection image that has value 1 at the aperture centres, zero everywhere else.
         sci_s = np.zeros(sci.shape)
@@ -487,7 +487,7 @@ class pyex():
         # Requiring all free parameters be > 0.
         def lnprior(theta):
             a, b, c, d = theta
-            if a >0 and b>0 and c>0 and d>0:
+            if -1e6<a<1e6 and -1e6<b<1e6 and -1e6<c<1e6 and -1e6<d>1e6:
                 return 0.0
             return -np.inf
         
@@ -498,7 +498,7 @@ class pyex():
                 return -np.inf
             return lp + lnlike(theta, x, y, yerr)
         
-        Merr = 0.05*np.median(medians) # Adding a 5% percentage error to the median noise values.
+        Merr = 0.05*np.array(medians) # Adding a 5% percentage error to the median noise values.
                                          # This will weight the fit towards the more common smaller radii.
 
         data = (Npix, medians,Merr)
@@ -522,7 +522,7 @@ class pyex():
         theta_max  = samples[np.argmax(sampler.flatlnprobability)]
 
         # Median error value of the whole map.
-        median_err = np.median(err[np.invert(np.isnan(err))])
+        median_err = np.median(err[~np.isnan(err)])
 
         # Read original catalogue produced by SExtractor.
         cat = ascii.read(imgconfig['CATALOG_NAME'])
@@ -563,7 +563,7 @@ class pyex():
             plt.minorticks_on()
             ax.tick_params(axis='both', direction='in', which = 'both')
             plt.savefig(f'{imgconfig["CATALOG_NAME"].split(".")[0]}_noise.png')
-            plt.close(fig)
+            fig.clear()
 
         # Remove remaining aperture files and the segmentation map.
         os.remove(f'{self.outdir}/small_apertures.temp.cat')
@@ -614,11 +614,16 @@ class pyex():
                     self.measurement.append(i)
             imgconfig['CHECKIMAGE_TYPE'] = 'SEGMENTATION'
             imgconfig['CHECKIMAGE_NAME'] = f'{imgconfig["CATALOG_NAME"][:-4]}.temp_seg.fits'
+
+        if self.other['GET_WCS'] == True:
+            for i in ['X_IMAGE', 'Y_IMAGE']:
+                if i not in self.measurement:
+                    self.measurement.append(i)
         
         # Write the output parameters to a text file which can be given to SExtractor.
         parameter_filename = self.write_params()
         imgconfig['PARAMETERS_NAME'] = parameter_filename
-	
+
 		# Build the command line arguments depending on the mode.
         if (type(image) == list) and (type(weight) == list):
             basecmd = [self.sexpath, "-c", self.sexfile, image[0], image[1], '-WEIGHT_IMAGE', f'{weight[0]},{weight[1]}']
@@ -689,6 +694,11 @@ class pyex():
                     self.measurement.append(i)
             imgconfig['CHECKIMAGE_TYPE'] = 'SEGMENTATION'
             imgconfig['CHECKIMAGE_NAME'] = f'{self.outdir}/{os.path.splitext(os.path.basename(images[0]))[0]}.temp_seg.fits'
+
+        if self.other['GET_WCS'] == True:
+            for i in ['X_IMAGE', 'Y_IMAGE']:
+                if i not in self.measurement:
+                    self.measurement.append(i)
 
         # Write the output parameters to a text file which can be given to SExtractor.
         parameter_filename = self.write_params()
